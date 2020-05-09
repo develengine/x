@@ -31,7 +31,7 @@ static int windowWidth = 1080;
 static int windowHeight = 720;
 
 static bool globalRunning = true;
-
+static bool centeredPointer = false;
 
 float cubeVertices[]
 {
@@ -241,7 +241,10 @@ int main(int argc, char **argv)
 
     XFree(visualInfo);
 
-    XSelectInput(display, window, KeyPressMask | ExposureMask);
+    XSelectInput(display, window, KeyPressMask    | KeyReleaseMask
+                                | ButtonPressMask | ButtonReleaseMask
+                                | PointerMotionMask
+                                | ExposureMask);
 
     XStoreName(display, window, "OpenGL Context");
 
@@ -314,8 +317,8 @@ int main(int argc, char **argv)
     glFrontFace(GL_CCW);
     glCullFace(GL_BACK);
 //     glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-//     glEnable(GL_BLEND);
-//     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     uint32_t vao;
     glGenVertexArrays(1, &vao);
@@ -399,6 +402,9 @@ int main(int argc, char **argv)
 
     float timePassed = 0.0f;
 
+    int lastPointerX = windowWidth / 2, lastPointerY = windowHeight / 2;
+    bool resetPointer = false;
+
     while (globalRunning)
     {
         int eventCount = QLength(display);
@@ -424,7 +430,75 @@ int main(int argc, char **argv)
                 {
                     globalRunning = false;
                 }
+                else if (keySym == XK_Alt_L)
+                {
+                    centeredPointer = !centeredPointer;
+
+                    if (centeredPointer)
+                    {
+                        XWarpPointer(display, None, window, 0, 0, 0, 0, windowWidth / 2, windowHeight / 2);
+                        lastPointerX = windowWidth / 2;
+                        lastPointerY = windowHeight / 2;
+
+                        Cursor invisibleCursor;
+                        Pixmap bitmapNoData;
+                        XColor black;
+                        static char noData[] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+                        black.red = black.green = black.blue = 0;
+
+                        bitmapNoData = XCreateBitmapFromData(display, window, noData, 8, 8);
+                        invisibleCursor = XCreatePixmapCursor(display, bitmapNoData, bitmapNoData, &black, &black, 0, 0);
+                        XDefineCursor(display,window, invisibleCursor);
+                        XFreeCursor(display, invisibleCursor);
+                        XFreePixmap(display, bitmapNoData);
+                    }
+                    else
+                    {
+                        XUndefineCursor(display, window);
+                    }
+                }
                 printf("%s\n", buffer);
+
+                XKeyPressedEvent *keyPressedEvent = (XKeyPressedEvent*)(&event);
+                printf("%d, state: %d\n", keyPressedEvent->keycode, 1);
+            }
+            else if (event.type == KeyRelease)
+            {
+                XKeyReleasedEvent *keyReleasedEvent = (XKeyReleasedEvent*)(&event);
+                printf("%d, state: %d\n", keyReleasedEvent->keycode, 0);
+            }
+            else if (event.type == ButtonPress)
+            {
+                XButtonPressedEvent *buttonPressedEvent = (XButtonPressedEvent*)(&event);
+                printf("%d, state: %d\n", buttonPressedEvent->button, 1);
+            }
+            else if (event.type == ButtonRelease)
+            {
+                XButtonReleasedEvent *buttonReleasedEvent = (XButtonReleasedEvent*)(&event);
+                printf("%d, state: %d\n", buttonReleasedEvent->button, 0);
+            }
+            else if (event.type == MotionNotify)
+            {
+                XMotionEvent *motionEvent = (XMotionEvent*)(&event);
+
+                if (resetPointer && motionEvent->x == windowWidth / 2 && motionEvent->y == windowHeight / 2)
+                {
+                    resetPointer = false;
+                    lastPointerX = motionEvent->x;
+                    lastPointerY = motionEvent->y;
+                    break;
+                }
+
+//                 printf("x: %d, y: %d\n", motionEvent->x - lastPointerX, motionEvent->y - lastPointerY);
+                if (centeredPointer)
+                {
+                    cameraRotation[0] += (float)(motionEvent->y - lastPointerY) / 256.f;
+                    cameraRotation[1] += (float)(motionEvent->x - lastPointerX) / 256.f;
+                }
+
+                lastPointerX = motionEvent->x;
+                lastPointerY = motionEvent->y;
+
             }
             else if (event.type == ClientMessage
             &&  (unsigned int)(event.xclient.data.l[0]) == WM_DELETE_WINDOW)
@@ -432,6 +506,22 @@ int main(int argc, char **argv)
                 globalRunning = false;
             }
         }
+
+        if (centeredPointer)
+        {
+            if (abs(lastPointerX - (windowWidth / 2)) > (windowWidth / 4)
+            ||  abs(lastPointerY - (windowHeight / 2)) > (windowHeight / 4))
+            {
+                XWarpPointer(display, None, window, 0, 0, 0, 0, windowWidth / 2, windowHeight / 2);
+                resetPointer = true;
+//                 XSync(display, False);
+            }
+        }
+
+//         if (resetPointer)
+//         {
+//             XWarpPointer(display, None, window, 0, 0, 0, 0, windowWidth / 2, windowHeight / 2);
+//         }
         XFlush(display);
 
         eng::Quaternionf objectRotation(cos(timePassed), (objectAxis * sin(timePassed)).data);
