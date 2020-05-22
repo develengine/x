@@ -13,6 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "interface.hpp"
 #include "math.hpp"
 
 
@@ -244,6 +245,7 @@ int main(int argc, char **argv)
     XSelectInput(display, window, KeyPressMask    | KeyReleaseMask
                                 | ButtonPressMask | ButtonReleaseMask
                                 | PointerMotionMask
+                                | KeymapStateMask
                                 | ExposureMask);
 
     XStoreName(display, window, "OpenGL Context");
@@ -252,6 +254,11 @@ int main(int argc, char **argv)
     XSetWMProtocols(display, window, &WM_DELETE_WINDOW, 1);
 
     XMapWindow(display, window);
+
+    int minKeyCodes, maxKeyCodes;
+    XDisplayKeycodes(display, &minKeyCodes, &maxKeyCodes);
+    int keySymLength;
+    KeySym *keySyms = XGetKeyboardMapping(display, minKeyCodes, maxKeyCodes - minKeyCodes, &keySymLength);
 
 
     const char *glxExtensions = glXQueryExtensionsString(display, DefaultScreen(display));
@@ -421,11 +428,23 @@ int main(int argc, char **argv)
                 windowWidth = attributes.width;
                 windowHeight = attributes.height;
             }
+            else if (event.type == MappingNotify)
+            {
+                XMappingEvent *mappingEvent = (XMappingEvent*)(&event);
+                XRefreshKeyboardMapping(mappingEvent);
+                XFree(keySyms);
+                XDisplayKeycodes(display, &minKeyCodes, &maxKeyCodes);
+                keySyms = XGetKeyboardMapping(display, minKeyCodes, maxKeyCodes - minKeyCodes, &keySymLength);
+                printf("Mapping changed\n");
+            }
             else if (event.type == KeyPress)
             {
-                char buffer[128] = { 0 };
+//                 char buffer[128] = { 0 };
                 KeySym keySym;
-                XLookupString(&event.xkey, buffer, sizeof(buffer), &keySym, NULL);
+//                 XLookupString(&event.xkey, buffer, sizeof(buffer), &keySym, NULL);
+                XKeyPressedEvent *keyPressedEvent = (XKeyPressedEvent*)(&event);
+                keySym = keySyms[(keyPressedEvent->keycode - minKeyCodes) * keySymLength];
+
                 if (keySym == XK_Escape)
                 {
                     globalRunning = false;
@@ -457,10 +476,11 @@ int main(int argc, char **argv)
                         XUndefineCursor(display, window);
                     }
                 }
-                printf("%s\n", buffer);
+                else {
 
-                XKeyPressedEvent *keyPressedEvent = (XKeyPressedEvent*)(&event);
-                printf("%d, state: %d\n", keyPressedEvent->keycode, 1);
+                }
+
+                printf("%d, state: %d, string: %s\n", keyPressedEvent->keycode, 1, XKeysymToString(keySym));
             }
             else if (event.type == KeyRelease)
             {
@@ -489,7 +509,6 @@ int main(int argc, char **argv)
                     break;
                 }
 
-//                 printf("x: %d, y: %d\n", motionEvent->x - lastPointerX, motionEvent->y - lastPointerY);
                 if (centeredPointer)
                 {
                     cameraRotation[0] += (float)(motionEvent->y - lastPointerY) / 256.f;
@@ -518,11 +537,8 @@ int main(int argc, char **argv)
             }
         }
 
-//         if (resetPointer)
-//         {
-//             XWarpPointer(display, None, window, 0, 0, 0, 0, windowWidth / 2, windowHeight / 2);
-//         }
         XFlush(display);
+
 
         eng::Quaternionf objectRotation(cos(timePassed), (objectAxis * sin(timePassed)).data);
         timePassed += 0.009f;
